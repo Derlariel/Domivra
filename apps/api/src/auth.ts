@@ -68,7 +68,6 @@ export function registerAuthRoutes(app: FastifyInstance): void {
   })
   app.post('/api/password', async req => {
     const user = await actor(req)
-    if (user.role === 'platform') throw bad(403, 'เปลี่ยนรหัสผ่านแพลตฟอร์มผ่านผู้ดูแลระบบ')
     const d = z.object({ current: z.string(), next: z.string().min(12).max(128) }).parse(req.body)
     const current = await one<{ password_hash: string }>('SELECT password_hash FROM users WHERE id=$1', [user.id])
     if (!current || !(await checkPassword(d.current, current.password_hash))) throw bad(403, 'รหัสผ่านเดิมไม่ถูกต้อง')

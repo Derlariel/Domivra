@@ -29,6 +29,21 @@ test.skipIf(!process.env.CI && !process.env.RUN_INTEGRATION)('separates organiza
   expect(orgA.status).toBe(200);expect(orgB.status).toBe(200)
   const a=(await request('POST','/api/login',{organization:'alpha',username:'admin',password:orgA.data.password})).cookie
   const b=(await request('POST','/api/login',{organization:'beta',username:'admin',password:orgB.data.password})).cookie
+  const owner=await request('POST',`/api/organizations/${orgA.data.id}/owners`,{name:'Owner A',username:'owner'},signed.cookie)
+  expect(owner.status).toBe(200)
+  expect((await request('POST',`/api/organizations/${orgA.data.id}/owners`,{name:'Other',username:'other'},b)).status).toBe(403)
+  expect((await request('POST',`/api/owners/${owner.data.id}/reset-password`,{},b)).status).toBe(403)
+  const managed=await request('GET','/api/organizations',undefined,signed.cookie)
+  expect((managed.data as unknown as Array<{slug:string;owners:Array<{username:string}>}>).find(x=>x.slug==='alpha')?.owners.map(x=>x.username)).toContain('owner')
+  const ownerSession=(await request('POST','/api/login',{organization:'alpha',username:'owner',password:owner.data.password})).cookie
+  expect((await request('GET','/api/organizations',undefined,ownerSession)).status).toBe(403)
+  const reset=await request('POST',`/api/owners/${owner.data.id}/reset-password`,{},signed.cookie)
+  expect(reset.status).toBe(200)
+  expect((await request('GET','/api/me',undefined,ownerSession)).status).toBe(401)
+  expect((await request('POST','/api/login',{organization:'alpha',username:'owner',password:owner.data.password})).status).toBe(401)
+  expect((await request('POST','/api/login',{organization:'alpha',username:'owner',password:reset.data.password})).status).toBe(200)
+  expect((await request('POST','/api/password',{current:platformPassword,next:'new-platform-password-123'},signed.cookie)).status).toBe(200)
+  expect((await request('POST','/api/login',{organization:'platform',username:'platform',password:platformPassword})).status).toBe(401)
   const property=await request('POST','/api/properties',{name:'A House',address:'Bangkok'},a)
   const unit=await request('POST','/api/units',{property_id:property.data.id,building:'A',number:'101',floor:1,rent:'10000.25',deposit:'20000.00'},a)
   expect(unit.status).toBe(200)

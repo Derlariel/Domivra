@@ -10,7 +10,10 @@ incidentEvents.setMaxListeners(0)
 export function publishIncident(orgId: string): void { incidentEvents.emit(orgId) }
 
 export function registerCoreRoutes(app: FastifyInstance): void {
-  app.get('/api/organizations', async req => { await actor(req,'platform'); return rows('SELECT id,slug,name,status FROM organizations ORDER BY created_at') })
+  app.get('/api/organizations', async req => { await actor(req,'platform'); return rows(`SELECT o.id,o.slug,o.name,o.status,
+    COALESCE(json_agg(json_build_object('id',u.id,'name',u.name,'username',u.username)) FILTER (WHERE u.id IS NOT NULL),'[]') owners
+    FROM organizations o LEFT JOIN users u ON u.org_id=o.id AND u.role='admin'
+    GROUP BY o.id ORDER BY o.created_at`) })
   app.post('/api/organizations', async req => {
     await actor(req,'platform'); const d=body(req), slug=text(d.slug,'รหัสองค์กร',40).toLowerCase(), name=text(d.name,'ชื่อองค์กร',120), username=text(d.username,'ชื่อผู้ใช้',60), adminName=text(d.admin_name,'ชื่อผู้ดูแล',120)
     if (!/^[a-z0-9-]{3,40}$/.test(slug) || slug==='platform') throw bad(400,'รหัสองค์กรไม่ถูกต้อง')
@@ -29,6 +32,25 @@ export function registerCoreRoutes(app: FastifyInstance): void {
     const result=await one('UPDATE organizations SET status=$1 WHERE id=$2 RETURNING id',[status,id(req)])
     if (!result) throw bad(404,'ไม่พบองค์กร')
     return { ok:true }
+  })
+  app.post('/api/organizations/:id/owners', async req => {
+    await actor(req,'platform'); const orgId=id(req),d=body(req)
+    if (!await one('SELECT id FROM organizations WHERE id=$1',[orgId])) throw bad(404,'ไม่พบองค์กร')
+    const username=text(d.username,'ชื่อผู้ใช้',60),name=text(d.name,'ชื่อเจ้าของ',120),password=randomBytes(18).toString('base64url')
+    const owner=await one<{id:string}>('INSERT INTO users(org_id,username,password_hash,name,role) VALUES($1,$2,$3,$4,$5) ON CONFLICT (org_id,username) DO NOTHING RETURNING id',[orgId,username,await passwordHash(password),name,'admin'])
+    if (!owner) throw bad(409,'ชื่อผู้ใช้นี้มีอยู่แล้วในองค์กร')
+    return {id:owner.id,username,password}
+  })
+  app.post('/api/owners/:id/reset-password', async req => {
+    await actor(req,'platform'); const ownerId=id(req),password=randomBytes(18).toString('base64url')
+    const owner=await transaction(async client => {
+      const found=await client.query<{username:string;slug:string}>(`UPDATE users u SET password_hash=$1 FROM organizations o
+        WHERE u.id=$2 AND u.org_id=o.id AND u.role='admin' RETURNING u.username,o.slug`,[await passwordHash(password),ownerId])
+      if (!found.rowCount) throw bad(404,'ไม่พบบัญชีเจ้าของ')
+      await client.query('DELETE FROM sessions WHERE user_id=$1',[ownerId])
+      return found.rows[0]!
+    })
+    return {organization:owner.slug,username:owner.username,password}
   })
   app.get('/api/settings', async req => {
     const user=await actor(req), values=await rows<{key:string;value:string}>('SELECT key,value FROM settings WHERE org_id=$1',[org(user)])
