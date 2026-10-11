@@ -34,7 +34,6 @@ docker compose exec -T api cat /app/runtime/platform-credentials.txt
 | AI | Python FastAPI, ผลลัพธ์ JSON แบบมี schema, ตรวจความผิดปกติด้วยกฎก่อนเรียก LLM adapter |
 | พัฒนา/CI | Docker Compose, Vitest, Testcontainers, Playwright, GitHub Actions |
 
-ไม่มี Java และ JUnit 5 เพราะ backend ที่เลือกเป็น Node.js
 
 ## การใช้งานหลัก
 
