@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+.npm-cache
+**/.npm-cache
+data
+runtime
+apps/*/dist
+apps/web/test-results
+.env
+.git
+legacy
+public
+tests
+server.js
+work
+outputs

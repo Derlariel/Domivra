@@ -1,0 +1,18 @@
+{
+  "name": "domivra",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "migrate:legacy": "node scripts/migrate-legacy.mjs",
+    "dev:web": "npm run dev -w @domivra/web",
+    "dev:api": "npm run dev -w @domivra/api",
+    "build": "npm run build -w @domivra/api && npm run build -w @domivra/web",
+    "test": "npm run test -w @domivra/api && npm run test -w @domivra/web",
+    "test:integration": "RUN_INTEGRATION=1 npm run test -w @domivra/api",
+    "test:e2e": "npm run test:e2e -w @domivra/web",
+    "legacy:start": "node server.js"
+  },
+  "engines": {"node": ">=22"}
+}

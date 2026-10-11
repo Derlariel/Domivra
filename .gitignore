@@ -1,0 +1,17 @@
+node_modules/
+.npm-cache/
+**/.npm-cache/
+data/
+runtime/
+.env
+.env.*.local
+apps/*/dist/
+apps/web/playwright-report/
+apps/web/test-results/
+.DS_Store
+/server.js
+/public/
+/tests/
+__pycache__/
+*.pyc
+.pytest_cache/
