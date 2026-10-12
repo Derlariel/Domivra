@@ -22,7 +22,7 @@ function validSheet(value:unknown): Sheet {
 export function registerDatasetRoutes(app:FastifyInstance):void {
   app.get('/api/datasets',async req=>{
     const orgId=admin(await actor(req))
-    return rows('SELECT id,name,filename,row_count,created_at FROM customer_datasets WHERE org_id=$1 ORDER BY created_at DESC',[orgId])
+    return rows('SELECT id,name,filename,row_count,created_at,expires_at FROM customer_datasets WHERE org_id=$1 ORDER BY created_at DESC',[orgId])
   })
   app.post('/api/datasets/parse',async req=>{
     await admin(await actor(req))
@@ -65,11 +65,13 @@ export function registerDatasetRoutes(app:FastifyInstance):void {
     if(!Array.isArray(input.sheets)||!input.sheets.length||input.sheets.length>20)throw bad(400,'จำนวนแผ่นงานไม่ถูกต้อง')
     const sheets=input.sheets.map(validSheet)
     if(sheets.reduce((n,s)=>n+s.rows.length,0)>5000||JSON.stringify(sheets).length>12_000_000)throw bad(400,'ไฟล์มีข้อมูลมากเกินไป')
+    const setting=await one<{value:string}>('SELECT value FROM settings WHERE org_id=$1 AND key=$2',[orgId,'import_retention_days'])
+    const retentionDays=Number(setting?.value||365)
     return transaction(async client=>{
       const created:string[]=[]
       for(const sheet of sheets){
-        const record=await client.query<{id:string}>('INSERT INTO customer_datasets(org_id,name,filename,headers,row_count,created_by) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',
-          [orgId,sheet.name,filename,JSON.stringify(sheet.headers),sheet.rows.length,owner.id])
+        const record=await client.query<{id:string}>('INSERT INTO customer_datasets(org_id,name,filename,headers,row_count,created_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,now()+($7::int * interval \'1 day\')) RETURNING id',
+          [orgId,sheet.name,filename,JSON.stringify(sheet.headers),sheet.rows.length,owner.id,retentionDays])
         const datasetId=record.rows[0]!.id
         created.push(datasetId)
         for(let start=0;start<sheet.rows.length;start+=200){
@@ -84,7 +86,7 @@ export function registerDatasetRoutes(app:FastifyInstance):void {
   })
   app.get('/api/datasets/:id',async req=>{
     const owner=await actor(req),orgId=admin(owner),datasetId=id(req)
-    const dataset=await one<{id:string;name:string;filename:string;headers:string[];row_count:number;created_at:Date}>('SELECT id,name,filename,headers,row_count,created_at FROM customer_datasets WHERE id=$1 AND org_id=$2',[datasetId,orgId])
+    const dataset=await one<{id:string;name:string;filename:string;headers:string[];row_count:number;created_at:Date;expires_at:Date}>('SELECT id,name,filename,headers,row_count,created_at,expires_at FROM customer_datasets WHERE id=$1 AND org_id=$2',[datasetId,orgId])
     if(!dataset)throw bad(404,'ไม่พบชุดข้อมูล')
     const rawOffset=Number((req.query as {offset?:string}).offset||0)
     const offset=Number.isSafeInteger(rawOffset)&&rawOffset>=0?rawOffset:0

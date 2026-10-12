@@ -10,9 +10,10 @@ import { registerWorkflowRoutes } from './routes-workflows.js'
 import { registerImportRoutes } from './routes-import.js'
 import { registerRegistryRoutes } from './routes-registry.js'
 import { registerDatasetRoutes } from './routes-datasets.js'
+import { registerMappingRoutes } from './routes-mapping.js'
 import { actor } from './auth.js'
 import { rows } from './db.js'
-import { purgeExpiredProfiles } from './retention.js'
+import { purgeExpiredProfiles, purgeExpiredDatasets } from './retention.js'
 
 const app = Fastify({ logger: true, bodyLimit: 28_000_000, trustProxy: false })
 await app.register(cookie)
@@ -36,6 +37,7 @@ registerWorkflowRoutes(app)
 registerImportRoutes(app)
 registerRegistryRoutes(app)
 registerDatasetRoutes(app)
+registerMappingRoutes(app)
 app.addHook('onResponse', async (req, reply) => {
   if (!req.url.startsWith('/api/') || !['POST','PATCH','DELETE'].includes(req.method) || reply.statusCode >= 400) return
   try {
@@ -48,7 +50,8 @@ app.addHook('onResponse', async (req, reply) => {
 })
 await initializeDatabase()
 await purgeExpiredProfiles().catch(error=>app.log.error(error,'Retention cleanup will retry after startup'))
-const retentionTimer=setInterval(()=>{purgeExpiredProfiles().catch(error=>app.log.error(error,'Retention cleanup failed'))},24*60*60*1000)
+await purgeExpiredDatasets().catch(error=>app.log.error(error,'Dataset cleanup will retry after startup'))
+const retentionTimer=setInterval(()=>{purgeExpiredProfiles().catch(error=>app.log.error(error,'Retention cleanup failed'));purgeExpiredDatasets().catch(error=>app.log.error(error,'Dataset cleanup failed'))},24*60*60*1000)
 await app.listen({ host: '0.0.0.0', port: config.API_PORT })
 const shutdown = async () => { clearInterval(retentionTimer); await app.close(); await pool.end() }
 process.on('SIGINT', shutdown)

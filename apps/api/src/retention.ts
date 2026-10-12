@@ -26,3 +26,10 @@ export async function purgeExpiredProfiles(): Promise<number> {
   }
   return expired.length
 }
+export async function purgeExpiredDatasets(): Promise<number> {
+  return transaction(async client=>{
+    const expired=await client.query<{id:string;org_id:string}>('DELETE FROM customer_datasets WHERE id IN (SELECT id FROM customer_datasets WHERE expires_at<=now() ORDER BY expires_at LIMIT 100) RETURNING id,org_id')
+    for(const item of expired.rows) await client.query('INSERT INTO audit_events(org_id,method,route,status) VALUES($1,$2,$3,$4)',[item.org_id,'PURGE','customer_dataset',200])
+    return expired.rowCount||0
+  })
+}

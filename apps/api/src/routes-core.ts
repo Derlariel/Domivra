@@ -62,10 +62,13 @@ export function registerCoreRoutes(app: FastifyInstance): void {
     const purpose='privacy_purpose' in d?text(d.privacy_purpose,'วัตถุประสงค์การเก็บข้อมูล',1000):null
     const days='retention_days' in d?whole(d.retention_days,'ระยะเก็บข้อมูล'):null
     if(days!==null&&(days<1||days>3650))throw bad(400,'ระยะเก็บข้อมูลต้องอยู่ระหว่าง 1–3650 วัน')
+    const importDays='import_retention_days' in d?whole(d.import_retention_days,'ระยะเก็บชุดข้อมูลนำเข้า'):null
+    if(importDays!==null&&(importDays<1||importDays>3650))throw bad(400,'ระยะเก็บชุดข้อมูลนำเข้าต้องอยู่ระหว่าง 1–3650 วัน')
     const keys=['org_name','tax_id','org_address','office_email','office_phone','security_phone','emergency_phone','bank_name','bank_account','bank_number','billing_day']
     for(const key of keys) if (key in d) await rows('INSERT INTO settings(org_id,key,value) VALUES($1,$2,$3) ON CONFLICT(org_id,key) DO UPDATE SET value=EXCLUDED.value',[orgId,key,optional(d[key],160)])
     if (purpose!==null) await rows('INSERT INTO settings(org_id,key,value) VALUES($1,$2,$3) ON CONFLICT(org_id,key) DO UPDATE SET value=EXCLUDED.value',[orgId,'privacy_purpose',purpose])
     if (days!==null) await rows('INSERT INTO settings(org_id,key,value) VALUES($1,$2,$3) ON CONFLICT(org_id,key) DO UPDATE SET value=EXCLUDED.value',[orgId,'retention_days',String(days)])
+    if (importDays!==null) await rows('INSERT INTO settings(org_id,key,value) VALUES($1,$2,$3) ON CONFLICT(org_id,key) DO UPDATE SET value=EXCLUDED.value',[orgId,'import_retention_days',String(importDays)])
     return {ok:true}
   })
   app.get('/api/overview', async req => {

@@ -1,10 +1,11 @@
 import { afterAll, expect, test } from 'vitest'
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
+import pg from 'pg'
 
 let database: StartedPostgreSqlContainer | undefined, server: ChildProcess | undefined, runtime = ''
 afterAll(async () => { server?.kill('SIGTERM'); if(database) await database.stop(); if(runtime) await rm(runtime,{recursive:true,force:true}) })
@@ -13,7 +14,8 @@ test.skipIf(!process.env.CI && !process.env.RUN_INTEGRATION)('separates organiza
   database=await new PostgreSqlContainer('postgres:17-alpine').start()
   runtime=await mkdtemp(path.join(tmpdir(),'domivra-test-'))
   const port=39451, base=`http://127.0.0.1:${port}`
-  server=spawn(process.execPath,['dist/main.js'],{cwd:path.resolve(import.meta.dirname,'..'),env:{...process.env,DATABASE_URL:database.getConnectionUri(),API_PORT:String(port),WEB_ORIGIN:'http://127.0.0.1:5173',S3_ACCESS_KEY:'test',S3_SECRET_KEY:'test',PII_ENCRYPTION_KEY:'ab'.repeat(32),RUNTIME_DIR:runtime},stdio:'ignore'})
+  const apiDir=path.resolve(import.meta.dirname,'..'),serverEnv={...process.env,DATABASE_URL:database.getConnectionUri(),API_PORT:String(port),WEB_ORIGIN:'http://127.0.0.1:5173',S3_ACCESS_KEY:'test',S3_SECRET_KEY:'test',PII_ENCRYPTION_KEY:'ab'.repeat(32),RUNTIME_DIR:runtime}
+  server=spawn(process.execPath,['dist/main.js'],{cwd:apiDir,env:serverEnv,stdio:'ignore'})
   for(let i=0;i<100;i++){try{if((await fetch(`${base}/api/health`)).ok)break}catch{}await delay(200)}
   const credentials=await readFile(path.join(runtime,'platform-credentials.txt'),'utf8')
   const platformPassword=credentials.match(/^password: (.+)$/m)?.[1]
@@ -86,4 +88,55 @@ test.skipIf(!process.env.CI && !process.env.RUN_INTEGRATION)('separates organiza
   expect((await request('GET',`/api/datasets/${datasetId}`,undefined,b)).status).toBe(404)
   expect((await request('DELETE',`/api/datasets/${datasetId}`,undefined,b)).status).toBe(404)
   expect((await request('DELETE',`/api/datasets/${datasetId}`,undefined,a)).status).toBe(200)
+  expect((await request('PATCH','/api/settings',{import_retention_days:30},a)).status).toBe(200)
+  const dataset=async(filename:string,csv:string)=>{
+    const parsed=await request('POST','/api/datasets/parse',{filename,file:'data:text/csv;base64,'+Buffer.from(csv).toString('base64')},a)
+    expect(parsed.status).toBe(200)
+    const saved=await request('POST','/api/datasets/confirm',parsed.data,a)
+    expect(saved.status).toBe(200)
+    return (saved.data.ids as string[])[0]!
+  }
+  const mappedUnits=await dataset('rooms-custom.csv','ห้อง,อาคาร,โครงการ,ค่าเช่า\nB-301,C,Third House,8000\n')
+  const roomsMap={target:'units',mapping:{number:'ห้อง',building:'อาคาร',property:'โครงการ',rent:'ค่าเช่า'}}
+  expect((await request('POST',`/api/datasets/${mappedUnits}/mapping/preview`,roomsMap,b)).status).toBe(404)
+  expect((await request('POST',`/api/datasets/${mappedUnits}/mapping/preview`,roomsMap,a)).data).toMatchObject({created:1,skipped:0,error_count:0})
+  expect((await request('POST',`/api/datasets/${mappedUnits}/mapping/confirm`,roomsMap,a)).data).toMatchObject({created:1,error_count:0})
+  expect((await request('POST',`/api/datasets/${mappedUnits}/mapping/preview`,roomsMap,a)).data).toMatchObject({created:0,skipped:1})
+  const invalidRooms=await dataset('invalid-rooms.csv','ห้อง,ชั้น\nX-101,1\nX-102,-1\n')
+  const invalidMap={target:'units',mapping:{number:'ห้อง',floor:'ชั้น'}}
+  expect((await request('POST',`/api/datasets/${invalidRooms}/mapping/preview`,invalidMap,a)).data).toMatchObject({created:1,error_count:1})
+  expect((await request('POST',`/api/datasets/${invalidRooms}/mapping/confirm`,invalidMap,a)).status).toBe(409)
+  expect(JSON.stringify((await request('GET','/api/units',undefined,a)).data)).not.toContain('X-101')
+  const mappedResidents=await dataset('residents-custom.csv','เลขห้อง,ชื่อผู้พัก\nB-301,Resident C\n')
+  const residentsMap={target:'residents',mapping:{number:'เลขห้อง',name:'ชื่อผู้พัก'}}
+  expect((await request('POST',`/api/datasets/${mappedResidents}/mapping/preview`,residentsMap,a)).data).toMatchObject({created:1,error_count:0})
+  const residentsResult=await request('POST',`/api/datasets/${mappedResidents}/mapping/confirm`,residentsMap,a)
+  expect(residentsResult.status).toBe(200)
+  const newResident=(residentsResult.data.credentials as Array<{username:string;password:string}>)[0]!
+  expect((await request('POST','/api/login',{organization:'alpha',...newResident})).status).toBe(200)
+  const mappedContracts=await dataset('contracts-custom.csv','เลขห้อง,เริ่ม,สิ้นสุด\nB-301,2026-01-01,2027-01-01\n')
+  const contractsMap={target:'contracts',mapping:{number:'เลขห้อง',start_date:'เริ่ม',end_date:'สิ้นสุด'}}
+  expect((await request('POST',`/api/datasets/${mappedContracts}/mapping/preview`,contractsMap,a)).data).toMatchObject({created:1,error_count:0})
+  expect((await request('POST',`/api/datasets/${mappedContracts}/mapping/confirm`,contractsMap,a)).status).toBe(200)
+  const mappedInvoices=await dataset('invoices-custom.csv','เลขห้อง,งวด,กำหนด\nB-301,2026-11,2026-11-05\n')
+  const invoicesMap={target:'invoices',mapping:{number:'เลขห้อง',period:'งวด',due:'กำหนด'}}
+  expect((await request('POST',`/api/datasets/${mappedInvoices}/mapping/preview`,invoicesMap,a)).data).toMatchObject({created:1,error_count:0})
+  expect((await request('POST',`/api/datasets/${mappedInvoices}/mapping/confirm`,invoicesMap,a)).status).toBe(200)
+  expect((await request('GET','/api/invoices',undefined,a)).data).toMatchObject(expect.arrayContaining([expect.objectContaining({period:'2026-11',status:'draft'})]))
+  const expiring=await request('GET',`/api/datasets/${mappedInvoices}`,undefined,a)
+  expect(new Date(String(expiring.data.expires_at)).getTime()).toBeGreaterThan(Date.now()+25*86_400_000)
+  const recovery=spawnSync(process.execPath,['dist/reset-platform.js'],{cwd:apiDir,env:serverEnv,encoding:'utf8'})
+  expect(recovery.status).toBe(0)
+  const recovered=await readFile(path.join(runtime,'platform-credentials.txt'),'utf8')
+  const recoveredPassword=recovered.match(/^password: (.+)$/m)?.[1]
+  expect(recoveredPassword).toBeTruthy()
+  expect((await request('POST','/api/login',{organization:'platform',username:'platform',password:recoveredPassword})).status).toBe(200)
+  expect((await request('POST','/api/login',{organization:'platform',username:'platform',password:'new-platform-password-123'})).status).toBe(401)
+  const databaseClient=new pg.Client({connectionString:database.getConnectionUri()})
+  await databaseClient.connect()
+  await databaseClient.query("UPDATE customer_datasets SET expires_at=now()-interval '1 day' WHERE id=$1",[mappedInvoices])
+  await databaseClient.end()
+  const cleanup=spawnSync(process.execPath,['--input-type=module','-e',"import('./dist/retention.js').then(async m=>{await m.purgeExpiredDatasets();const {pool}=await import('./dist/db.js');await pool.end()})"],{cwd:apiDir,env:serverEnv,encoding:'utf8'})
+  expect(cleanup.status).toBe(0)
+  expect((await request('GET',`/api/datasets/${mappedInvoices}`,undefined,a)).status).toBe(404)
 },120_000)
