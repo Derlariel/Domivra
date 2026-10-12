@@ -37,6 +37,7 @@ services:
       S3_ENDPOINT: http://storage:8333
       S3_ACCESS_KEY: ${S3_ACCESS_KEY:?run npm run setup}
       S3_SECRET_KEY: ${S3_SECRET_KEY:?run npm run setup}
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:?run npm run setup}
       S3_BUCKET: domivra-private
       AI_URL: http://ai:8000
       RUNTIME_DIR: /app/runtime

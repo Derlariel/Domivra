@@ -59,8 +59,13 @@ export function registerCoreRoutes(app: FastifyInstance): void {
   })
   app.patch('/api/settings', async req => {
     const orgId=admin(await actor(req)),d=body(req)
+    const purpose='privacy_purpose' in d?text(d.privacy_purpose,'วัตถุประสงค์การเก็บข้อมูล',1000):null
+    const days='retention_days' in d?whole(d.retention_days,'ระยะเก็บข้อมูล'):null
+    if(days!==null&&(days<1||days>3650))throw bad(400,'ระยะเก็บข้อมูลต้องอยู่ระหว่าง 1–3650 วัน')
     const keys=['org_name','tax_id','org_address','office_email','office_phone','security_phone','emergency_phone','bank_name','bank_account','bank_number','billing_day']
     for(const key of keys) if (key in d) await rows('INSERT INTO settings(org_id,key,value) VALUES($1,$2,$3) ON CONFLICT(org_id,key) DO UPDATE SET value=EXCLUDED.value',[orgId,key,optional(d[key],160)])
+    if (purpose!==null) await rows('INSERT INTO settings(org_id,key,value) VALUES($1,$2,$3) ON CONFLICT(org_id,key) DO UPDATE SET value=EXCLUDED.value',[orgId,'privacy_purpose',purpose])
+    if (days!==null) await rows('INSERT INTO settings(org_id,key,value) VALUES($1,$2,$3) ON CONFLICT(org_id,key) DO UPDATE SET value=EXCLUDED.value',[orgId,'retention_days',String(days)])
     return {ok:true}
   })
   app.get('/api/overview', async req => {
@@ -84,10 +89,11 @@ export function registerCoreRoutes(app: FastifyInstance): void {
   app.post('/api/units', async req => {
     const orgId=admin(await actor(req)),d=body(req),propertyId=String(d.property_id)
     if(!await one('SELECT id FROM properties WHERE id=$1 AND org_id=$2',[propertyId,orgId]))throw bad(404,'ไม่พบโครงการ')
-    return one(`INSERT INTO units(org_id,property_id,building,number,floor,rent,deposit,room_type,area,water_meter,electric_meter)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,[orgId,propertyId,text(d.building,'อาคาร',30),text(d.number,'เลขห้อง',20),whole(d.floor,'ชั้น'),amount(d.rent,'ค่าเช่า'),amount(d.deposit??0,'เงินประกัน'),optional(d.room_type,60)||'Standard',amount(d.area??0,'พื้นที่'),optional(d.water_meter,60),optional(d.electric_meter,60)])
+    return one(`INSERT INTO units(org_id,property_id,building,number,floor,rent,deposit,room_type,area,water_meter,electric_meter,owner_name,owner_phone)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,[orgId,propertyId,text(d.building,'อาคาร',30),text(d.number,'เลขห้อง',20),whole(d.floor,'ชั้น'),amount(d.rent,'ค่าเช่า'),amount(d.deposit??0,'เงินประกัน'),optional(d.room_type,60)||'Standard',amount(d.area??0,'พื้นที่'),optional(d.water_meter,60),optional(d.electric_meter,60),optional(d.owner_name,120),optional(d.owner_phone,30)])
   })
   app.patch('/api/units/:id', async req => {const orgId=admin(await actor(req)),d=body(req);if(!['available','occupied','maintenance'].includes(String(d.status)))throw bad(400,'สถานะไม่ถูกต้อง');const unitId=id(req),hasResident=!!await one('SELECT id FROM users WHERE unit_id=$1 AND role=$2',[unitId,'resident']);if((d.status==='occupied')!==hasResident)throw bad(409,'สถานะไม่ตรงกับผู้พัก');const found=await one(`UPDATE units SET rent=$1,deposit=$2,room_type=$3,area=$4,water_meter=$5,electric_meter=$6,status=$7 WHERE id=$8 AND org_id=$9 RETURNING id`,[amount(d.rent,'ค่าเช่า'),amount(d.deposit??0,'เงินประกัน'),optional(d.room_type,60)||'Standard',amount(d.area??0,'พื้นที่'),optional(d.water_meter,60),optional(d.electric_meter,60),d.status,unitId,orgId]);if(!found)throw bad(404,'ไม่พบห้อง');return {ok:true}})
+  app.patch('/api/units/:id/owner', async req => {const orgId=admin(await actor(req)),d=body(req);const found=await one('UPDATE units SET owner_name=$1,owner_phone=$2 WHERE id=$3 AND org_id=$4 RETURNING id',[optional(d.owner_name,120),optional(d.owner_phone,30),id(req),orgId]);if(!found)throw bad(404,'ไม่พบห้อง');return {ok:true}})
   app.post('/api/units/:id/invite', async req => {const orgId=admin(await actor(req)),unitId=id(req),invite=randomBytes(18).toString('base64url');const found=await one("UPDATE units SET invite_hash=$1,invite_expires_at=now()+interval '7 days' WHERE id=$2 AND org_id=$3 AND status='available' RETURNING invite_expires_at",[tokenHash(invite),unitId,orgId]);if(!found)throw bad(409,'ห้องนี้ไม่ว่าง');return {invite,expires:found.invite_expires_at}})
   app.get('/api/residents', async req => {const orgId=admin(await actor(req));return rows(`SELECT us.id,us.username,us.name,us.unit_id,u.number FROM users us LEFT JOIN units u ON u.id=us.unit_id WHERE us.org_id=$1 AND us.role='resident' ORDER BY us.name`,[orgId])})
   app.post('/api/residents', async req => {const orgId=admin(await actor(req)),d=body(req),unitId=String(d.unit_id),password=randomBytes(18).toString('base64url');const result=await transaction(async client=>{const claimed=await client.query("UPDATE units SET status='occupied',invite_hash=NULL WHERE id=$1 AND org_id=$2 AND status='available' RETURNING id",[unitId,orgId]);if(!claimed.rowCount)throw bad(409,'ห้องนี้ไม่ว่าง');const made=await client.query<{id:string}>('INSERT INTO users(org_id,username,password_hash,name,role,unit_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[orgId,text(d.username,'ชื่อผู้ใช้',40),await passwordHash(password),text(d.name,'ชื่อผู้พัก',100),'resident',unitId]);return made.rows[0]!.id});return {id:result,username:d.username,password}})

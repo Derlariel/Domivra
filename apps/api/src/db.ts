@@ -35,6 +35,10 @@ export async function checkPassword(password: string, stored: string): Promise<b
 export async function initializeDatabase(): Promise<void> {
   const file = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../migrations/001_init.sql')
   await pool.query(await readFile(file, 'utf8'))
+  const registry = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../migrations/002_resident_registry.sql')
+  await pool.query(await readFile(registry, 'utf8'))
+  const datasets = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../migrations/003_customer_datasets.sql')
+  await pool.query(await readFile(datasets, 'utf8'))
   const exists = await one('SELECT id FROM users WHERE role=$1 LIMIT 1', ['platform'])
   if (!exists) {
     const password = randomBytes(18).toString('base64url')

@@ -5,7 +5,7 @@ import { actor, admin, bad } from './auth.js'
 import { rows, transaction } from './db.js'
 import { body, text, whole, amount, optional } from './http.js'
 
-const fields = ['property','building','number','floor','rent','deposit','area','room_type','water_meter','electric_meter'] as const
+const fields = ['property','building','number','floor','rent','deposit','area','room_type','water_meter','electric_meter','owner_name','owner_phone'] as const
 type ImportRow = Record<(typeof fields)[number], string>
 
 export function registerImportRoutes(app: FastifyInstance): void {
@@ -51,14 +51,14 @@ export function registerImportRoutes(app: FastifyInstance): void {
       const key=JSON.stringify([property,building,number])
       if (seen.has(key)) throw bad(400,`เลขห้องซ้ำในไฟล์ แถว ${index+2}`)
       seen.add(key)
-      return {property,building,number,floor:whole(value.floor,'ชั้น'),rent:amount(value.rent,'ค่าเช่า'),deposit:amount(value.deposit,'เงินประกัน'),area:amount(value.area,'พื้นที่'),roomType:optional(value.room_type,60)||'Standard',waterMeter:optional(value.water_meter,60),electricMeter:optional(value.electric_meter,60)}
+      return {property,building,number,floor:whole(value.floor,'ชั้น'),rent:amount(value.rent,'ค่าเช่า'),deposit:amount(value.deposit,'เงินประกัน'),area:amount(value.area,'พื้นที่'),roomType:optional(value.room_type,60)||'Standard',waterMeter:optional(value.water_meter,60),electricMeter:optional(value.electric_meter,60),ownerName:optional(value.owner_name,120),ownerPhone:optional(value.owner_phone,30)}
     })
     return transaction(async client=>{
       let imported=0,skipped=0
       for (const item of parsed) {
         const property=await client.query<{id:string}>('INSERT INTO properties(org_id,name) VALUES($1,$2) ON CONFLICT (org_id,name) DO UPDATE SET name=EXCLUDED.name RETURNING id',[orgId,item.property])
-        const result=await client.query(`INSERT INTO units(org_id,property_id,building,number,floor,rent,deposit,area,room_type,water_meter,electric_meter)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (org_id,property_id,building,number) DO NOTHING RETURNING id`,[orgId,property.rows[0]!.id,item.building,item.number,item.floor,item.rent,item.deposit,item.area,item.roomType,item.waterMeter,item.electricMeter])
+        const result=await client.query(`INSERT INTO units(org_id,property_id,building,number,floor,rent,deposit,area,room_type,water_meter,electric_meter,owner_name,owner_phone)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (org_id,property_id,building,number) DO NOTHING RETURNING id`,[orgId,property.rows[0]!.id,item.building,item.number,item.floor,item.rent,item.deposit,item.area,item.roomType,item.waterMeter,item.electricMeter,item.ownerName,item.ownerPhone])
         if (result.rowCount) imported++; else skipped++
       }
       const record=await client.query('INSERT INTO imports(org_id,filename,imported,skipped) VALUES($1,$2,$3,$4) RETURNING id',[orgId,filename,imported,skipped])

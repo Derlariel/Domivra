@@ -13,6 +13,7 @@ const config={
   S3_ACCESS_KEY:chosen(values.S3_ACCESS_KEY||values.MINIO_ROOT_USER,()=>`domivra${randomBytes(8).toString('hex')}`),
   S3_SECRET_KEY:chosen(values.S3_SECRET_KEY||values.MINIO_ROOT_PASSWORD,random),
   S3_SSE_KEK:chosen(values.S3_SSE_KEK,()=>randomBytes(32).toString('hex')),
+  PII_ENCRYPTION_KEY:chosen(values.PII_ENCRYPTION_KEY,()=>randomBytes(32).toString('hex')),
   LLM_PROVIDER:values.LLM_PROVIDER||'disabled',
   LLM_BASE_URL:values.LLM_BASE_URL||'',
   LLM_API_KEY:values.LLM_API_KEY||'',

@@ -10,6 +10,7 @@ const schema = z.object({
   S3_BUCKET: z.string().default('domivra-private'),
   S3_ACCESS_KEY: z.string().min(1),
   S3_SECRET_KEY: z.string().min(1),
+  PII_ENCRYPTION_KEY: z.string().regex(/^[a-f0-9]{64}$/i),
   AI_URL: z.string().url().default('http://127.0.0.1:8000'),
   RUNTIME_DIR: z.string().default('./runtime'),
 })
