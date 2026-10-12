@@ -17,6 +17,8 @@ const fields:Record<Target,string[]>={
   invoices:['property','building','number','period','due','rent','water','electric','other'],
 }
 function validDate(value:string):boolean {return /^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value}
+function calendarDate(value:string):string {return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value)?value.slice(0,10):value}
+function billingPeriod(value:string):string {return /^\d{4}-\d{2}-01T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value)?value.slice(0,7):value}
 function mapped(input:unknown,headers:string[],target:Target):Record<string,string> {
   if(!input||typeof input!=='object'||Array.isArray(input))throw bad(400,'กรุณาเลือกคอลัมน์')
   const source=input as Record<string,unknown>,result:Record<string,string>={}
@@ -70,13 +72,13 @@ async function prepare(client:PoolClient,orgId:string,datasetId:string,target:Ta
       }else if(target==='contracts'){
         if(!unit.resident_id)throw bad(409,'ยังไม่มีบัญชีผู้พักในห้อง')
         if(unit.contract_id){skipped++;continue}
-        const start=text(get('start_date'),'วันเริ่มสัญญา',10),end=text(get('end_date'),'วันสิ้นสุดสัญญา',10)
+        const start=text(calendarDate(get('start_date')),'วันเริ่มสัญญา',10),end=text(calendarDate(get('end_date')),'วันสิ้นสุดสัญญา',10)
         if(!validDate(start)||!validDate(end)||start>=end)throw bad(400,'วันที่สัญญาไม่ถูกต้อง')
         const mode=get('sign_mode')||'paper'
         if(!['paper','electronic'].includes(mode))throw bad(400,'รูปแบบสัญญาต้องเป็น paper หรือ electronic')
         plans.push({row:record.row_number,unit,values:{start_date:start,end_date:end,rent:amount(get('rent')||unit.rent,'ค่าเช่า'),deposit:amount(get('deposit')||unit.deposit,'เงินประกัน'),sign_mode:mode}})
       }else{
-        const period=text(get('period'),'งวดบิล',7),due=text(get('due'),'วันครบกำหนด',10)
+        const period=text(billingPeriod(get('period')),'งวดบิล',7),due=text(calendarDate(get('due')),'วันครบกำหนด',10)
         if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)||!validDate(due))throw bad(400,'งวดบิลหรือวันครบกำหนดไม่ถูกต้อง')
         const invoiceKey=`${unit.id}|${period}`
         if(invoiceKeys.has(invoiceKey)){skipped++;continue}

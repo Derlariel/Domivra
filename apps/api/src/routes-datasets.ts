@@ -34,7 +34,7 @@ export function registerDatasetRoutes(app:FastifyInstance):void {
     if(!bytes.length||bytes.length>4_000_000)throw bad(413,'ไฟล์ต้องไม่เกิน 4 MB')
     const workbook=new ExcelJS.Workbook()
     try {
-      if(/\.csv$/i.test(filename))await workbook.csv.read(Readable.from(bytes))
+      if(/\.csv$/i.test(filename))await workbook.csv.read(Readable.from(bytes),{map:value=>value})
       else await workbook.xlsx.load(bytes as unknown as Parameters<typeof workbook.xlsx.load>[0])
     }catch{throw bad(400,'อ่านไฟล์ไม่ได้ กรุณาตรวจรูปแบบไฟล์')}
     if(!workbook.worksheets.length||workbook.worksheets.length>20)throw bad(400,'ไฟล์ต้องมี 1–20 แผ่นงาน')
@@ -52,7 +52,7 @@ export function registerDatasetRoutes(app:FastifyInstance):void {
       const data:string[][]=[]
       sheet.eachRow((row,rowIndex)=>{
         if(rowIndex===1)return
-        const values=headers.map((_,i)=>row.getCell(i+1).text)
+        const values=headers.map((_,i)=>{const cell=row.getCell(i+1);return cell.value instanceof Date?cell.value.toISOString():cell.text})
         if(values.some(v=>v!=='')){data.push(values);if(++total>5000)throw bad(400,'นำเข้าได้ไม่เกิน 5,000 แถวต่อไฟล์')}
       })
       return data.length?validSheet({name:sheet.name||`Sheet ${index+1}`,headers,rows:data}):null

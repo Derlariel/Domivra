@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import pg from 'pg'
+import ExcelJS from 'exceljs'
 
 let database: StartedPostgreSqlContainer | undefined, server: ChildProcess | undefined, runtime = ''
 afterAll(async () => { server?.kill('SIGTERM'); if(database) await database.stop(); if(runtime) await rm(runtime,{recursive:true,force:true}) })
@@ -75,7 +76,7 @@ test.skipIf(!process.env.CI && !process.env.RUN_INTEGRATION)('separates organiza
   const imported=await request('POST','/api/import/parse',{filename:'rooms.csv',file:'data:text/csv;base64,'+Buffer.from(csv).toString('base64')},a)
   expect(imported.status).toBe(200)
   expect((await request('POST','/api/import/confirm',imported.data,a)).status).toBe(200)
-  expect((await request('GET','/api/units',undefined,a)).data).toMatchObject(expect.arrayContaining([expect.objectContaining({owner_name:'Owner Two'})]))
+  expect((await request('GET','/api/units',undefined,a)).data).toMatchObject(expect.arrayContaining([expect.objectContaining({owner_name:'Owner Two',owner_phone:'0800000000'})]))
   const custom='เลขห้อง,ข้อมูลตามโครงการ,รหัสภายใน\nA-101,พื้นที่พิเศษ,X-01\n'
   const customParsed=await request('POST','/api/datasets/parse',{filename:'custom.csv',file:'data:text/csv;base64,'+Buffer.from(custom).toString('base64')},a)
   expect(customParsed.status).toBe(200)
@@ -125,6 +126,11 @@ test.skipIf(!process.env.CI && !process.env.RUN_INTEGRATION)('separates organiza
   expect((await request('GET','/api/invoices',undefined,a)).data).toMatchObject(expect.arrayContaining([expect.objectContaining({period:'2026-11',status:'draft'})]))
   const expiring=await request('GET',`/api/datasets/${mappedInvoices}`,undefined,a)
   expect(new Date(String(expiring.data.expires_at)).getTime()).toBeGreaterThan(Date.now()+25*86_400_000)
+  const workbook=new ExcelJS.Workbook(),sheet=workbook.addWorksheet('วันสัญญา')
+  sheet.addRow(['วันที่']);sheet.addRow([new Date('2026-01-01T00:00:00.000Z')])
+  const xlsx=await request('POST','/api/datasets/parse',{filename:'dates.xlsx',file:'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,'+Buffer.from(await workbook.xlsx.writeBuffer()).toString('base64')},a)
+  expect(xlsx.status).toBe(200)
+  expect((xlsx.data.sheets as Array<{rows:string[][]}>)[0]?.rows[0]?.[0]).toBe('2026-01-01T00:00:00.000Z')
   const recovery=spawnSync(process.execPath,['dist/reset-platform.js'],{cwd:apiDir,env:serverEnv,encoding:'utf8'})
   expect(recovery.status).toBe(0)
   const recovered=await readFile(path.join(runtime,'platform-credentials.txt'),'utf8')

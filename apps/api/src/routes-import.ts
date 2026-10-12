@@ -23,7 +23,7 @@ export function registerImportRoutes(app: FastifyInstance): void {
     if (!bytes.length||bytes.length>4_000_000) throw bad(413,'ไฟล์ต้องไม่เกิน 4 MB')
     const workbook=new ExcelJS.Workbook()
     try {
-      if (/\.csv$/i.test(filename)) await workbook.csv.read(Readable.from(bytes))
+      if (/\.csv$/i.test(filename)) await workbook.csv.read(Readable.from(bytes),{map:value=>value})
       else await workbook.xlsx.load(bytes as unknown as Parameters<typeof workbook.xlsx.load>[0])
     } catch { throw bad(400,'อ่านไฟล์ไม่ได้ กรุณาตรวจรูปแบบไฟล์') }
     const sheet=workbook.worksheets[0]
