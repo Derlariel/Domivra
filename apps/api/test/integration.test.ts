@@ -19,7 +19,7 @@ test.skipIf(!process.env.CI && !process.env.RUN_INTEGRATION)('separates organiza
   const platformPassword=credentials.match(/^password: (.+)$/m)?.[1]
   expect(platformPassword).toBeTruthy()
   const request=async(method:string,url:string,data?:unknown,cookie?:string)=>{
-    const response=await fetch(base+url,{method,headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},body:data===undefined?undefined:JSON.stringify(data)})
+    const response=await fetch(base+url,{method,headers:{...(data===undefined?{}:{'Content-Type':'application/json'}),...(cookie?{Cookie:cookie}:{})},body:data===undefined?undefined:JSON.stringify(data)})
     return {status:response.status,data:await response.json() as Record<string,unknown>,cookie:response.headers.get('set-cookie')?.split(';')[0]||''}
   }
   const signed=await request('POST','/api/login',{organization:'platform',username:'platform',password:platformPassword})
